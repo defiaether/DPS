@@ -40,7 +40,7 @@ The project works by combining a Python web service, a local SQLite database, an
 Run the following command as **root** to install, reconfigure, or manage your users:
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/defiaether/dps/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/defiaether/DPS/main/install.sh)
 ```
 
 ### Prerequisites
