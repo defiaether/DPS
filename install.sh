@@ -21,15 +21,16 @@ SERVICE_FILE="/etc/systemd/system/berayan-spa.service"
 
 mkdir -p "$INSTALL_DIR"
 
-# ASCII Art Header
+# ASCII Art Header (Perfectly Escaped for Bash)
 show_header() {
   clear
   echo -e "${GREEN}"
-  echo " ____  _____ ____    _YA_   _   _      "
-  echo "| __ )| ____|  _ \  / \ \ \ / / / \  | \ | |"
-  echo "|  _ \|  _| | |_) |/ _ \ \ V / / _ \ |  \| |"
-  echo "| |_) | |___|  _ < / ___ \ | |/ ___ \| |\  |"
-  echo "|____/|_____|_| \_/_/   \_\_/_/   \_\_| \_|"
+  echo "  ____                                      "
+  echo " | __ )  ___ _ __ __ _ _   _  __ _ _ __     "
+  echo " |  _ \ / _ \ '__/ _\` | | | |/ _\` | '_ \    "
+  echo " | |_) |  __/ | | (_| | |_| | (_| | | | |   "
+  echo " |____/ \___|_|  \__,_|\__, |\__,_|_| |_|   "
+  echo "                       |___/                "
   echo -e "${NC}"
   echo "------------------------------------------------"
   echo "       Berayan - Port Authorization System      "
@@ -120,19 +121,16 @@ def init_db():
 # IPTables control wrapper
 def manage_iptables(action, ip):
     """action: -I (Insert) or -D (Delete)"""
-    if not VPN_PORTS:
-        return
-    for proto in ["tcp", "udp"]:
-        # Delete first to prevent duplicate rules
+    # Delete first to prevent duplicate rules
+    subprocess.run(
+        f"iptables -D BERAYAN-SPA -s {ip} -j ACCEPT",
+        shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL
+    )
+    if action == "-I":
         subprocess.run(
-            f"iptables -D BERAYAN-SPA -s {ip} -p {proto} -m multiport --dports {VPN_PORTS} -j ACCEPT",
+            f"iptables -I BERAYAN-SPA -s {ip} -j ACCEPT",
             shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL
         )
-        if action == "-I":
-            subprocess.run(
-                f"iptables -I BERAYAN-SPA -s {ip} -p {proto} -m multiport --dports {VPN_PORTS} -j ACCEPT",
-                shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL
-            )
 
 # Setup initial firewall chains
 def setup_firewall_base():
@@ -144,19 +142,25 @@ def setup_firewall_base():
     # Flush existing rules in the chain
     subprocess.run("iptables -F BERAYAN-SPA", shell=True)
 
-    # Clean legacy rules in INPUT
+    # Clean legacy rules in INPUT (Ports)
     subprocess.run(f"iptables -D INPUT -p tcp -m multiport --dports {VPN_PORTS} -j BERAYAN-SPA", shell=True, stderr=subprocess.DEVNULL)
     subprocess.run(f"iptables -D INPUT -p udp -m multiport --dports {VPN_PORTS} -j BERAYAN-SPA", shell=True, stderr=subprocess.DEVNULL)
     subprocess.run(f"iptables -D INPUT -p tcp -m multiport --dports {VPN_PORTS} -j DROP", shell=True, stderr=subprocess.DEVNULL)
     subprocess.run(f"iptables -D INPUT -p udp -m multiport --dports {VPN_PORTS} -j DROP", shell=True, stderr=subprocess.DEVNULL)
 
-    # Insert jumps to the BERAYAN-SPA chain
+    # Clean legacy rules in INPUT (ICMP / Ping)
+    subprocess.run("iptables -D INPUT -p icmp --icmp-type echo-request -j BERAYAN-SPA", shell=True, stderr=subprocess.DEVNULL)
+    subprocess.run("iptables -D INPUT -p icmp --icmp-type echo-request -j DROP", shell=True, stderr=subprocess.DEVNULL)
+
+    # Insert jumps to the BERAYAN-SPA chain (Ports + ICMP)
     subprocess.run(f"iptables -A INPUT -p tcp -m multiport --dports {VPN_PORTS} -j BERAYAN-SPA", shell=True)
     subprocess.run(f"iptables -A INPUT -p udp -m multiport --dports {VPN_PORTS} -j BERAYAN-SPA", shell=True)
+    subprocess.run("iptables -A INPUT -p icmp --icmp-type echo-request -j BERAYAN-SPA", shell=True)
     
-    # Drop all other traffic to those ports
+    # Drop all other traffic to those ports and drop other Pings
     subprocess.run(f"iptables -A INPUT -p tcp -m multiport --dports {VPN_PORTS} -j DROP", shell=True)
     subprocess.run(f"iptables -A INPUT -p udp -m multiport --dports {VPN_PORTS} -j DROP", shell=True)
+    subprocess.run("iptables -A INPUT -p icmp --icmp-type echo-request -j DROP", shell=True)
 
 # Restore rules from DB on startup
 def restore_rules():
@@ -473,9 +477,7 @@ manage_users() {
         # Remove active IP authorization from IPTables for this user
         sqlite3 "$DB_FILE" "SELECT ip FROM authorized_ips WHERE username='$DEL_USER';" | while read -r ip; do
           if [ -n "$ip" ]; then
-            for proto in tcp udp; do
-              iptables -D BERAYAN-SPA -s "$ip" -p "$proto" -m multiport --dports "$VPN_PORTS" -j ACCEPT 2>/dev/null
-            done
+            iptables -D BERAYAN-SPA -s "$ip" -j ACCEPT 2>/dev/null
           fi
         done
 
@@ -569,12 +571,16 @@ uninstall_spa() {
     load_config
     if [ -n "$VPN_PORTS" ]; then
       echo -e "${YELLOW}Cleaning up IPTables rules...${NC}"
-      # Remove jumps
-      iptables -D INPUT -p tcp -m multiport --dports "$VPN_PORTS" -j BERAYAN-SPA > /dev/null 2>&1
-      iptables -D INPUT -p udp -m multiport --dports "$VPN_PORTS" -j BERAYAN-SPA > /dev/null 2>&1
-      # Remove block drops
+      # Remove block drops (including ICMP)
       iptables -D INPUT -p tcp -m multiport --dports "$VPN_PORTS" -j DROP > /dev/null 2>&1
       iptables -D INPUT -p udp -m multiport --dports "$VPN_PORTS" -j DROP > /dev/null 2>&1
+      iptables -D INPUT -p icmp --icmp-type echo-request -j DROP > /dev/null 2>&1
+      
+      # Remove jumps (including ICMP)
+      iptables -D INPUT -p tcp -m multiport --dports "$VPN_PORTS" -j BERAYAN-SPA > /dev/null 2>&1
+      iptables -D INPUT -p udp -m multiport --dports "$VPN_PORTS" -j BERAYAN-SPA > /dev/null 2>&1
+      iptables -D INPUT -p icmp --icmp-type echo-request -j BERAYAN-SPA > /dev/null 2>&1
+      
       # Remove chain
       iptables -F BERAYAN-SPA > /dev/null 2>&1
       iptables -X BERAYAN-SPA > /dev/null 2>&1
