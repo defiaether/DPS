@@ -1,8 +1,3 @@
-# DPS (Dynamic-Port-Shield) 
-Secure your VPS ports using web-based dynamic IP whitelisting and auto-expiring firewall rules.
-
-# Dynamic Port Shield (Berayan SPA)
-
 # Dynamic Port Shield (Berayan SPA)
 
 A lightweight, terminal-guided port authorization system (SPA alternative) for Linux servers. It helps protect your VPN ports (such as X-UI/Sanaei, Shadowsocks, VMess) by keeping them closed by default and dynamically opening them only for authorized client IPs.
